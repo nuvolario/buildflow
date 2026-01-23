@@ -26,3 +26,7 @@ Thumbs.db
 # Cache
 .cache/
 .parcel-cache/
+
+# Docker
+docker/mysql_data/
+*.tar

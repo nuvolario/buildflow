@@ -1,0 +1,99 @@
+services:
+  # MySQL Database
+  db:
+    image: mysql:8.0
+    container_name: buildflow-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-buildflow_root}
+      MYSQL_DATABASE: ${DB_NAME:-buildflow}
+      MYSQL_USER: ${DB_USER:-buildflow_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-buildflow_pass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-buildflow_root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - buildflow-network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: buildflow-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-buildflow}
+      DB_USER: ${DB_USER:-buildflow_user}
+      DB_PASSWORD: ${DB_PASSWORD:-buildflow_pass}
+      JWT_SECRET: ${JWT_SECRET:-buildflow_jwt_secret_dev_only}
+      CORS_ORIGIN: http://localhost:5173
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend/src:/app/src:ro
+      - ./backend/migrations:/app/migrations:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - buildflow-network
+
+  # Frontend Dev Server
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: buildflow-frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:3001/api
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+    depends_on:
+      - backend
+    networks:
+      - buildflow-network
+
+  # phpMyAdmin - Database GUI
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: buildflow-phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: ${DB_ROOT_PASSWORD:-buildflow_root}
+      UPLOAD_LIMIT: 50M
+    ports:
+      - "8080:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - buildflow-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  buildflow-network:
+    driver: bridge
